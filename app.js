@@ -20,7 +20,7 @@ const ALGORITHMS = {
 /* ---------- Referencias al DOM ---------- */
 const $ = (id) => document.getElementById(id);
 const el = {
-  algo1: $("algo1"), algo2: $("algo2"), speed: $("speed"),
+  algo1: $("algo1"), algo2: $("algo2"), speed: $("speed"), speedLabel: $("speedLabel"),
   size: $("size"), sizeLabel: $("sizeLabel"),
   btnGenerate: $("btnGenerate"), btnStart: $("btnStart"),
   btnPause: $("btnPause"), btnReset: $("btnReset"),
@@ -49,14 +49,15 @@ const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 const getDelay = () => Math.round(505 - Number(el.speed.value) * 5); // 1→500ms, 100→5ms
 
 function paint() {
+  const dense = bars.length > 45; // con muchas barras, el número solo aparece al pasar el cursor
   for (let i = 0; i < bars.length; i++) {
     const b = bars[i];
     const h = Math.max((arr[i] / maxVal) * 100, 3);
     b.style.height = h + "%";
-    b.style.setProperty("--v", h);
     b.className = "bar" + (marks.has(i) ? " " + marks.get(i)
       : i === pivotIdx ? " pivot" : sortedSet.has(i) ? " sorted" : "");
-    if (bars.length <= 20) b.textContent = arr[i];
+    b.title = arr[i];
+    b.textContent = dense ? "" : arr[i];
   }
 }
 
@@ -162,29 +163,36 @@ async function mergeSort() {
   await sort(0, arr.length - 1);
 }
 
+/* Quick Sort con partición de dos punteros y pivote = elemento derecho
+   (misma estructura que Collection<T>::quickSort con Position left/right). */
 async function quickSort() {
-  async function partition(lo, hi) {
-    let i = lo;
-    pivotIdx = hi;
-    for (let j = lo; j < hi; j++) {
-      comparisons++;
-      await tick([j], "compare");
-      if (arr[j] < arr[hi]) {
-        if (i !== j) await swap(i, j);
-        i++;
-      }
+  async function sort(left, right) {
+    if (left === right) { markSorted(left); return; }
+
+    // Caso base: dos elementos adyacentes -> comparar y, si hace falta, intercambiar.
+    if (left + 1 === right) {
+      if (await gt(left, right)) await swap(left, right);
+      markSorted(left, right);
+      return;
     }
+
+    pivotIdx = right; // pivote = *right->dataPtr
+    let i = left, j = right;
+
+    while (i !== j) {
+      // avanza i mientras arr[i] <= pivote
+      while (i !== j && !(await gt(i, right))) i++;
+      // retrocede j mientras arr[j] >= pivote
+      while (i !== j && !(await gt(right, j))) j--;
+      if (i !== j) await swap(i, j);
+    }
+
+    await swap(i, right); // coloca el pivote en su posición final
     pivotIdx = -1;
-    if (i !== hi) await swap(i, hi);
-    return i;
-  }
-  async function sort(lo, hi) {
-    if (lo > hi) return;
-    if (lo === hi) { markSorted(lo); return; }
-    const p = await partition(lo, hi);
-    markSorted(p);
-    await sort(lo, p - 1);
-    await sort(p + 1, hi);
+    markSorted(i);
+
+    if (i !== left) await sort(left, i - 1);
+    if (i !== right) await sort(i + 1, right);
   }
   await sort(0, arr.length - 1);
 }
@@ -344,10 +352,22 @@ el.btnReset.addEventListener("click", async () => {
   el.status.textContent = "Reiniciado: dataset original restaurado.";
 });
 
+function updateSliderFill(input) {
+  const min = Number(input.min) || 0, max = Number(input.max) || 100;
+  const pct = ((Number(input.value) - min) / (max - min)) * 100;
+  input.style.setProperty("--pct", pct + "%");
+}
+
 el.size.addEventListener("input", () => {
   el.sizeLabel.textContent = el.size.value;
+  updateSliderFill(el.size);
   generateData();
   clearMetrics();
+});
+
+el.speed.addEventListener("input", () => {
+  el.speedLabel.textContent = el.speed.value;
+  updateSliderFill(el.speed);
 });
 
 /* ---------- Inicialización ---------- */
@@ -359,6 +379,8 @@ function init() {
   el.algo2.add(new Option("— Ninguno (ejecución individual) —", "none"), 0);
   el.algo1.value = "bubble";
   el.algo2.value = "quick";
+  updateSliderFill(el.speed);
+  updateSliderFill(el.size);
   generateData();
 }
 init();
